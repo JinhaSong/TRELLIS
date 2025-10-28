@@ -177,8 +177,31 @@ def sparse_serialized_scaled_dot_product_self_attention(
             q = q.unsqueeze(0)                                      # [1, M, H, C]
             k = k.unsqueeze(0)                                      # [1, M, H, C]
             v = v.unsqueeze(0)                                      # [1, M, H, C]
-            mask = xops.fmha.BlockDiagonalMask.from_seqlens(seq_lens)
-            out = xops.memory_efficient_attention(q, k, v, mask)[0] # [M, H, C]
+            ########### nayeon modify: xformers 버전 호환 코드 ###########
+            """
+            original code:
+                mask = xops.fmha.BlockDiagonalMask.from_seqlens(seq_lens)
+                out = xops.memory_efficient_attention(q, k, v, mask)[0]
+            """
+            # 1) BlockDiagonalMask import/경로 호환
+            if hasattr(xops.fmha, "attn_bias"):  # 0.0.28+ 신식
+                BlockDiagonalMask = xops.fmha.attn_bias.BlockDiagonalMask
+            else:                                # 0.0.27 계열 구식
+                BlockDiagonalMask = xops.fmha.BlockDiagonalMask
+            mask = BlockDiagonalMask.from_seqlens(seq_lens)
+            # 2) memory_efficient_attention 호출 호환 (키워드/포지셔널 모두 처리)
+            try: 
+                out = xops.memory_efficient_attention(q, k, v, attn_bias=mask) # [M, H, C]
+                B, L, H, C = out.shape
+                out = out.contiguous().view(B * L, H, C)
+            except TypeError:
+                # 구버전 시그니처 대비
+                out = xops.memory_efficient_attention(q, k, v, mask) # [M, H, C]
+            # 3) 반환 타입 호환 (신버전: Tensor, 구버전: tuple)
+            if isinstance(out, tuple):
+                out = out[0]
+            ###############1##############################################
+
         elif ATTN == 'flash_attn':
             cu_seqlens = torch.cat([torch.tensor([0]), torch.cumsum(torch.tensor(seq_lens), dim=0)], dim=0) \
                         .to(qkv.device).int()
