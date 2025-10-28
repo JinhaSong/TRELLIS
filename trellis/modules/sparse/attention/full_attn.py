@@ -194,8 +194,26 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
         q = q.unsqueeze(0)
         k = k.unsqueeze(0)
         v = v.unsqueeze(0)
-        mask = xops.fmha.BlockDiagonalMask.from_seqlens(q_seqlen, kv_seqlen)
-        out = xops.memory_efficient_attention(q, k, v, mask)[0]
+        ########### nayeon modify: xformers 버전 호환 코드 ###########
+
+        # 1) BlockDiagonalMask import/경로 호환
+        if hasattr(xops.fmha, "attn_bias"):  # 0.0.28+ 신식
+            BlockDiagonalMask = xops.fmha.attn_bias.BlockDiagonalMask
+        else:                                # 0.0.27 계열 구식
+            BlockDiagonalMask = xops.fmha.BlockDiagonalMask
+        mask = BlockDiagonalMask.from_seqlens(q_seqlen, kv_seqlen)
+        # 2) memory_efficient_attention 호출 호환 (키워드/포지셔널 모두 처리)
+        try:
+            out = xops.memory_efficient_attention(q, k, v, attn_bias=mask)
+            B, L, H, C = out.shape
+            out = out.contiguous().view(B * L, H, C)
+        except TypeError:
+            # 구버전 시그니처 대비
+            out = xops.memory_efficient_attention(q, k, v, mask)
+        # 3) 반환 타입 호환 (신버전: Tensor, 구버전: tuple)
+        if isinstance(out, tuple):
+            out = out[0]
+
     elif ATTN == 'flash_attn':
         cu_seqlens_q = torch.cat([torch.tensor([0]), torch.cumsum(torch.tensor(q_seqlen), dim=0)]).int().to(device)
         if num_all_args in [2, 3]:
