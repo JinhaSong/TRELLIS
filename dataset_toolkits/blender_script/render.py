@@ -523,6 +523,6 @@ if __name__ == '__main__':
     parser.add_argument('--save_mesh', action='store_true', help='Save the mesh as a .ply file.')
     argv = sys.argv[sys.argv.index("--") + 1:]
     args = parser.parse_args(argv)
-
+    print(args)
     main(args)
     
