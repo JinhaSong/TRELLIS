@@ -95,6 +95,7 @@ if __name__ == '__main__':
                     load_queue.put((sha256, feats))
                 except Exception as e:
                     print(f"Error loading features for {sha256}: {e}")
+            
             loader_executor.map(loader, sha256s)
             
             def saver(sha256, pack):
@@ -111,8 +112,10 @@ if __name__ == '__main__':
                         torch.from_numpy(feats['indices']).int(),
                     ], dim=1),
                 ).cuda()
+
                 latent = encoder(feats, sample_posterior=False)
                 assert torch.isfinite(latent.feats).all(), "Non-finite latent"
+                print('saving latent')
                 pack = {
                     'feats': latent.feats.cpu().numpy().astype(np.float32),
                     'coords': latent.coords[:, 1:].cpu().numpy().astype(np.uint8),
